@@ -1,4 +1,3 @@
-// backend/index.js
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
@@ -12,6 +11,21 @@ const app = express();
 app.use(bodyParser.json());
 app.use(cors()); // Allow CORS for frontend
 app.use(express.static('downloads'));
+
+// Helper function to download and save assets (CSS, JS, images, fonts)
+const saveAsset = async (src, folder, baseUrl) => {
+  try {
+    // Handle relative URLs
+    const fullUrl = src.startsWith('http') ? src : new URL(src, baseUrl).href;
+    const fileName = path.basename(fullUrl);
+    const filePath = path.join(folder, fileName);
+
+    const assetResponse = await axios.get(fullUrl, { responseType: 'arraybuffer' });
+    fs.writeFileSync(filePath, assetResponse.data);
+  } catch (error) {
+    console.error(`Error downloading ${src}:`, error);
+  }
+};
 
 // Route to fetch preview HTML
 app.post('/preview', async (req, res) => {
@@ -55,32 +69,30 @@ app.post('/download', async (req, res) => {
     const htmlPath = path.join(htmlDir, 'index.html');
     fs.writeFileSync(htmlPath, dom.serialize());
 
-    // Helper function to download and save assets
-    const saveAsset = async (src, folder) => {
-      try {
-        if (src.startsWith('http')) {
-          const fileName = path.basename(src);
-          const filePath = path.join(folder, fileName);
-          const assetResponse = await axios.get(src, { responseType: 'arraybuffer' });
-          fs.writeFileSync(filePath, assetResponse.data);
-        }
-      } catch (error) {
-        console.error(`Error downloading ${src}:`, error);
-      }
-    };
-
     // Download and save CSS files
     const cssLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
       .map(link => link.href);
     for (const cssLink of cssLinks) {
-      await saveAsset(cssLink, cssDir);
+      await saveAsset(cssLink, cssDir, url);
     }
 
     // Download and save images
     const imgSrcs = Array.from(document.querySelectorAll('img'))
       .map(img => img.src);
     for (const imgSrc of imgSrcs) {
-      await saveAsset(imgSrc, imgDir);
+      await saveAsset(imgSrc, imgDir, url);
+    }
+
+    // Download and save JavaScript files
+    const scriptSrcs = Array.from(document.querySelectorAll('script[src]')).map(script => script.src);
+    for (const scriptSrc of scriptSrcs) {
+      await saveAsset(scriptSrc, path.join(baseDir, 'js'), url);
+    }
+
+    // Download and save fonts
+    const fontLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"], @font-face')).map(link => link.href);
+    for (const fontLink of fontLinks) {
+      await saveAsset(fontLink, path.join(baseDir, 'fonts'), url);
     }
 
     // Create a ZIP file
